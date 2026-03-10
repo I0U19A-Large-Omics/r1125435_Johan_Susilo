@@ -1,0 +1,27 @@
+#the first line is to get the sample names from the .fa files
+SAMPLES, = glob_wildcards("{sample}.fa")
+
+rule all:
+  input:
+    "030.output/output.tsv"
+
+rule create_tsv:
+  input:
+    #multiple input needed to be finished before creating the output file, so we use expand to create a list of input files
+    expand("gc_calculated/{sample}.gc", sample = SAMPLES)
+  output:
+    "030.output/output.tsv"
+  shell:
+    "cat {input} > {output}"
+
+rule calc_gc:
+  input:
+    #1 to 1 pipeline, so each sample can be processed independently
+    "{sample}.fa"
+  output:
+    "gc_calculated/{sample}.gc"
+  shell:
+    """
+    export PATH=/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/bin/:$PATH
+    python gc_calc.py {input} {output}
+    """
