@@ -1,8 +1,12 @@
+# GC Content Calculator (Pseudocode)
 
+## Steps
 
-gc calc pseudo code:
-read .fa files
-grab sequence
-count how many g and c 
-divide (g + c) by total sequence
-print gc content
+1. Read `.fa` (FASTA) files.
+2. Extract the DNA sequence from each file.
+3. Count the number of `G` and `C` nucleotides.
+4. Compute GC content:
+
+   GC content = (G + C) / total sequence length
+
+5. Print the GC content.
