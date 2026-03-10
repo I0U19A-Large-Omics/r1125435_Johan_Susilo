@@ -1,0 +1,4 @@
+*.fa
+*.snakemake
+030.output/
+gc_calculated/
