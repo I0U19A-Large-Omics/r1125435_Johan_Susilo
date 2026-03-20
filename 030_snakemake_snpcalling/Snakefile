@@ -1,0 +1,122 @@
+
+# define file location
+REF_GENOME = "/staging/leuven/stg_00079/teaching/hg38_9/chr9.fa"
+SNPEFF_JAR = "/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/share/snpeff-5.4.0a-0/snpEff.jar"
+
+# tell snakemake what is the ultimate goal
+rule all:
+  input:
+    "output/fastqc/TLE66_T_fastqc.html",
+    "output/fastqc/TLE66_N_fastqc.html",
+    "100.final/snps.annotated.tsv"
+
+# rule to generate fastqc html
+rule fastqc:
+  input:
+    "{sample}.fastq"
+  output:
+    html="output/fastqc/{sample}_fastqc.html", #define naming html for easier access
+    zip="output/fastqc/{sample}_fastqc.zip" 
+  log:
+    "output/fastqc/{sample}.log" #output log per sample
+  shell:
+    """
+    mkdir -p output/fastqc
+    fastqc {input} -o output/fastqc > {log} 2>&1
+
+    #check if output not empty
+    [ -s {output.html} ] || {{ echo "Error: fastqc html is empty!"; exit 1; }}
+    """
+
+rule bwa_map:
+  input:
+    fq="{sample}.fastq", #define so later on we can define as input.fq
+    ref=REF_GENOME
+  output:
+    bam="output/bam/{sample}.bam"
+  shell:
+    """
+    mkdir -p output/bam
+    bwa mem {input.ref} {input.fq} | samtools sort -o {output.bam} 
+
+    [ -s {output.bam} ] || {{ echo "Error: bam output is empty!"; exit 1; }}
+    """
+
+rule index_bam:
+  input:
+    "output/bam/{sample}.bam"
+  output:
+    "output/bam/{sample}.bam.bai"
+  shell:
+    """
+    samtools index {input} {output}
+    [ -s {output} ] || {{ echo "Error: BAM index is empty!"; exit 1; }}
+    """
+
+rule variant_calling:
+  input:
+    bam_t = "output/bam/TLE66_T.bam",  
+    bam_n = "output/bam/TLE66_N.bam",
+    bai_t = "output/bam/TLE66_T.bam.bai",
+    bai_n = "output/bam/TLE66_N.bam.bai",
+    ref=REF_GENOME
+  output:
+    "output/vcf/raw_snps.vcf"
+  shell:
+    """
+    mkdir -p output/vcf
+    bcftools mpileup -f {input.ref} {input.bam_t} {input.bam_n} | bcftools call -mv -Ov -o {output}
+
+    [ -s {output} ] || {{ echo "Error: raw_snps.vcf is empty!"; exit 1; }}
+
+    """
+
+rule clean_variants:
+  input:
+    raw="output/vcf/raw_snps.vcf",
+    ref=REF_GENOME
+  output:
+    "output/vcf/clean_snps.vcf"
+  shell:
+    """
+    cat {input.raw} \
+    | vt decompose - \
+    | vt normalize -n -r {input.ref} - \
+    | vt uniq - \
+    | vt view -f "QUAL>20" -h - \
+    > {output}
+
+    [ -s {output} ] || {{ echo "Error: clean_snps.vcf is empty!"; exit 1; }}
+    """
+
+rule annotate_variants:
+  input:
+    "output/vcf/clean_snps.vcf"
+  output:
+    vcf="output/vcf/annotated_snps.vcf",
+    stats="output/vcf/snpEff_summary.html"
+  resources:
+    mem_mb=2000
+  shell:
+    """
+    java -Xmx3400m -jar {SNPEFF_JAR} eff hg38 \
+        -dataDir /user/leuven/386/vsc38672/DATA/leuven_raw_data/omics/snpeff_database \
+        -stats {output.stats} \
+        {input} > {output.vcf}
+
+    [ -s {output.vcf} ] || {{ echo "Error: annotated_snps.vcf is empty!"; exit 1; }}
+    """
+
+rule extract_tsv:
+  input:
+    "output/vcf/annotated_snps.vcf"
+  output:
+    "100.final/snps.annotated.tsv"
+  shell:
+    """
+    mkdir -p 100.final/
+
+    python extract_vcf.py {input} {output}
+
+    [ -s {output} ] || {{ echo "Error: snps.annotated.tsv is empty!"; exit 1; }}
+    """
