@@ -6,8 +6,8 @@ SNPEFF_JAR = "/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/share/snpeff
 # tell snakemake what is the ultimate goal
 rule all:
   input:
-    "output/fastqc/TLE66_T_fastqc.html",
-    "output/fastqc/TLE66_N_fastqc.html",
+    "010.fastqc/TLE66_T_fastqc.html",
+    "010.fastqc/TLE66_N_fastqc.html",
     "100.final/snps.annotated.tsv"
 
 # rule to generate fastqc html
@@ -15,15 +15,15 @@ rule fastqc:
   input:
     "{sample}.fastq"
   output:
-    html="output/fastqc/{sample}_fastqc.html", #define naming html for easier access
-    zip="output/fastqc/{sample}_fastqc.zip" 
+    html="010.fastqc/{sample}_fastqc.html", #define naming html for easier access
+    zip="010.fastqc/{sample}_fastqc.zip" 
   log:
-    "output/fastqc/{sample}.log" #output log per sample
+    "010.fastqc/{sample}.log" #output log per sample
   shell:
     """
     set -euo pipefail
-    mkdir -p output/fastqc
-    fastqc {input} -o output/fastqc > {log} 2>&1
+    mkdir -p 010.fastqc
+    fastqc {input} -o 010.fastqc > {log} 2>&1
 
     #check if output not empty
     [ -s {output.html} ] || {{ echo "Error: fastqc html is empty!"; exit 1; }}
@@ -34,21 +34,37 @@ rule bwa_map:
     fq="{sample}.fastq", #define so later on we can define as input.fq
     ref=REF_GENOME
   output:
-    bam="output/bam/{sample}.bam"
+    sam="020.bam/{sample}.sam"
   shell:
     """
     set -euo pipefail
-    mkdir -p output/bam
-    bwa mem {input.ref} {input.fq} | samtools sort -o {output.bam} 
+    mkdir -p 020.bam
+    bwa mem {input.ref} {input.fq} > {output.sam}
 
-    [ -s {output.bam} ] || {{ echo "Error: bam output is empty!"; exit 1; }}
+    [ -s {output.sam} ] || {{ echo "Error: bam output is empty!"; exit 1; }}
     """
+
+rule sort_bam:
+  input:
+    sam="020.bam/{sample}.sam"
+  output:
+    bam="020.bam/{sample}.bam"
+  shell:
+    """
+    set -euo pipefail
+    samtools sort -o {output.bam} {input.sam}
+
+    [ -s {output.bam} ] || {{ echo "Error: BAM output is empty!"; exit 1; }}
+
+    """
+
+  
 
 rule index_bam:
   input:
-    "output/bam/{sample}.bam"
+    "020.bam/{sample}.bam"
   output:
-    "output/bam/{sample}.bam.bai"
+    "020.bam/{sample}.bam.bai"
   shell:
     """
     set -euo pipefail
@@ -58,17 +74,17 @@ rule index_bam:
 
 rule variant_calling:
   input:
-    bam_t = "output/bam/TLE66_T.bam",  
-    bam_n = "output/bam/TLE66_N.bam",
-    bai_t = "output/bam/TLE66_T.bam.bai",
-    bai_n = "output/bam/TLE66_N.bam.bai",
+    bam_t = "020.bam/TLE66_T.bam",  
+    bam_n = "020.bam/TLE66_N.bam",
+    bai_t = "020.bam/TLE66_T.bam.bai",
+    bai_n = "020.bam/TLE66_N.bam.bai",
     ref=REF_GENOME
   output:
-    "output/vcf/raw_snps.vcf"
+    "030.vcf/raw_snps.vcf"
   shell:
     """
     set -euo pipefail
-    mkdir -p output/vcf
+    mkdir -p 030.vcf/
     bcftools mpileup -f {input.ref} {input.bam_t} {input.bam_n} | bcftools call -mv -Ov -o {output}
 
     [ -s {output} ] || {{ echo "Error: raw_snps.vcf is empty!"; exit 1; }}
@@ -77,10 +93,10 @@ rule variant_calling:
 
 rule clean_variants:
   input:
-    raw="output/vcf/raw_snps.vcf",
+    raw="030.vcf/raw_snps.vcf",
     ref=REF_GENOME
   output:
-    "output/vcf/clean_snps.vcf"
+    "030.vcf/clean_snps.vcf"
   shell:
     """
     set -euo pipefail
@@ -96,17 +112,17 @@ rule clean_variants:
 
 rule annotate_variants:
   input:
-    "output/vcf/clean_snps.vcf"
+    "030.vcf/clean_snps.vcf"
   output:
-    vcf="output/vcf/annotated_snps.vcf",
-    stats="output/vcf/snpEff_summary.html"
+    vcf="030.vcf/annotated_snps.vcf",
+    stats="030.vcf/snpEff_summary.html"
   resources:
     mem_mb=2000
   shell:
     """
     set -euo pipefail
     java -Xmx3400m -jar {SNPEFF_JAR} eff hg38 \
-        -dataDir /user/leuven/386/vsc38672/DATA/leuven_raw_data/omics/snpeff_database \
+        -dataDir /staging/leuven/stg_00079/teaching/snpeff_db \
         -stats {output.stats} \
         {input} > {output.vcf}
 
@@ -115,7 +131,7 @@ rule annotate_variants:
 
 rule extract_tsv:
   input:
-    "output/vcf/annotated_snps.vcf"
+    "030.vcf/annotated_snps.vcf"
   output:
     "100.final/snps.annotated.tsv"
   shell:
