@@ -21,6 +21,7 @@ rule fastqc:
     "output/fastqc/{sample}.log" #output log per sample
   shell:
     """
+    set -euo pipefail
     mkdir -p output/fastqc
     fastqc {input} -o output/fastqc > {log} 2>&1
 
@@ -36,6 +37,7 @@ rule bwa_map:
     bam="output/bam/{sample}.bam"
   shell:
     """
+    set -euo pipefail
     mkdir -p output/bam
     bwa mem {input.ref} {input.fq} | samtools sort -o {output.bam} 
 
@@ -49,6 +51,7 @@ rule index_bam:
     "output/bam/{sample}.bam.bai"
   shell:
     """
+    set -euo pipefail
     samtools index {input} {output}
     [ -s {output} ] || {{ echo "Error: BAM index is empty!"; exit 1; }}
     """
@@ -64,6 +67,7 @@ rule variant_calling:
     "output/vcf/raw_snps.vcf"
   shell:
     """
+    set -euo pipefail
     mkdir -p output/vcf
     bcftools mpileup -f {input.ref} {input.bam_t} {input.bam_n} | bcftools call -mv -Ov -o {output}
 
@@ -79,6 +83,7 @@ rule clean_variants:
     "output/vcf/clean_snps.vcf"
   shell:
     """
+    set -euo pipefail
     cat {input.raw} \
     | vt decompose - \
     | vt normalize -n -r {input.ref} - \
@@ -99,6 +104,7 @@ rule annotate_variants:
     mem_mb=2000
   shell:
     """
+    set -euo pipefail
     java -Xmx3400m -jar {SNPEFF_JAR} eff hg38 \
         -dataDir /user/leuven/386/vsc38672/DATA/leuven_raw_data/omics/snpeff_database \
         -stats {output.stats} \
@@ -114,6 +120,7 @@ rule extract_tsv:
     "100.final/snps.annotated.tsv"
   shell:
     """
+    set -euo pipefail
     mkdir -p 100.final/
 
     python extract_vcf.py {input} {output}

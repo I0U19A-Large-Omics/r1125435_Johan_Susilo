@@ -1,17 +1,52 @@
-# Snakemake SNP Calling Pipeline
+# 🧬 Snakemake SNP Calling Pipeline
 
-## Overview
-This repository contains a Snakemake pipeline that automates a full Single Nucleotide Polymorphism (SNP) calling workflow. It takes raw `.fastq` files, performs quality control, maps the reads to a reference genome (hg38), calls variants, annotates their biological effects, and extracts the results into a final, human-readable `.tsv` file.
+## 📌 Overview
+This repository contains a Snakemake workflow for an end-to-end **SNP calling pipeline**.  
 
-## Repository Contents
-* `Snakefile`: The master Snakemake pipeline containing all execution rules.
-* `extract_vcf.py`: A custom Python parser designed to extract fields and SnpEff annotations from a VCF file into a TSV format (replaces SnpSift).
-* `.gitignore`: Prevents heavy intermediate genomic data (e.g., `.bam`, `.vcf`) from being accidentally pushed to this repository.
-* `README.md`: This instruction file.
+It processes raw `.fastq` sequencing data and performs:
 
-## Prerequisites
-This pipeline is designed to be run on the VSC (Flemish Supercomputer Center) in an interactive session.
+- Quality control (QC)
+- Read alignment to a reference genome (hg38)
+- Variant calling
+- Variant annotation (SnpEff-based)
+- Conversion of VCF results into a final `.tsv` file for analysis
 
-Before running the pipeline, ensure the class Conda environment is active in your path:
+---
+
+## 📂 Repository Structure
+- Snakefile # Main Snakemake workflow
+- extract_vcf.py # Custom VCF → TSV parser (SnpEff-aware)
+- README.md # Pipeline documentation
+- .gitignore # Prevents large intermediate files from being tracked
+
+## ⚙️ Prerequisites
+
+This pipeline is designed for the **VSC (Flemish Supercomputer Center)** environment and must be run inside an interactive SLURM session.
+
+---
+
+## 🚀 Setup Instructions
+
+### 1. Setup Conda environment
+
 ```bash
 export PATH=/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/bin/:$PATH
+```
+
+### 2. Start an interactive SLURM session (WICE cluster)
+
+```bash
+srun -n 1 -c 2 --mem 4G --time=2:00:00 \
+     --export=ALL \
+     -A lp_edu_large_omics \
+     -p interactive \
+     --cluster wice \
+     --pty bash -
+```
+
+### 3. run snakemake 
+```bash
+snakemake --snakefile /path/to/project/Snakefile \
+          --directory /scratch/yourname/where it contain fastq files \
+          --cores 2
+```
