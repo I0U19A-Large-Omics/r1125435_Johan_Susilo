@@ -1,0 +1,5 @@
+.ipynb_checkpoints
+.snakemake
+logs
+150.db
+database.ipynb

@@ -1,0 +1,22 @@
+rule all:
+  input:
+    "150.db/snps.sqlite"
+
+rule load_vcf_to_sqlite:
+  input: 
+    vcf="/lustre1/project/stg_00079/teaching/data/snps.annotated.vcf",
+    py_script="vcf_to_sqlite.py"
+  output:
+    db="150.db/snps.sqlite"
+  log:
+    "logs/load_vcf_to_sqlite.log"
+
+  shell:
+    """
+    
+    export PATH=/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/bin/:$PATH
+
+    python {input.py_script} --vcf {input.vcf} --db {output.db} > {log} 2>&1
+    
+
+    """
