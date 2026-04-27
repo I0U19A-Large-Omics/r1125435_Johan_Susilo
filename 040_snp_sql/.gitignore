@@ -2,4 +2,5 @@
 .snakemake
 logs
 150.db
+160.figures
 database.ipynb
