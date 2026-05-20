@@ -46,7 +46,9 @@ srun -n 1 -c 2 --mem 4G --time=2:00:00 \
 
 ### 3. run snakemake 
 ```bash
-snakemake --snakefile /path/to/project/Snakefile \
-          --config scratch=/scratch/yourname/where it contain fastq files/ \
-          --cores 2
+snakemake \
+  --snakefile /path/to/project/Snakefile \
+  --config scratch=/scratch/yourname/where_it_contains_fastq_files \
+           r_number=student_id \
+  --cores 2
 ```

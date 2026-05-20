@@ -1,0 +1,229 @@
+
+# define file location
+REF_GENOME = "/staging/leuven/stg_00079/teaching/hg38_9/chr9.fa"
+SNPEFF_JAR = "/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/share/snpeff-5.4.0a-0/snpEff.jar"
+SCRATCH  = config["scratch"].rstrip("/")
+CONDA_BIN  = "/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/bin"
+
+R_NUMBER    = config["r_number"]   
+MANGO_FASTQ = "/gbiomed/home/large_omics_course/fastq"
+MANGO_OUT   = f"/gbiomed/home/large_omics_course/output/{R_NUMBER}"
+
+RAW     = f"{SCRATCH}/000.raw"
+FASTQC  = f"{SCRATCH}/010.fastqc"
+BAM     = f"{SCRATCH}/020.bam"
+VCF     = f"{SCRATCH}/030.vcf"
+FINAL   = f"{SCRATCH}/100.final"
+DB      = f"{SCRATCH}/150.db"
+FIGURES = f"{SCRATCH}/160.figures"
+LOGS    = f"{SCRATCH}/logs"
+
+# tell snakemake what is the ultimate goal
+rule all:
+    input:
+        f"{FASTQC}/TLE66_T_fastqc.html",
+        f"{FASTQC}/TLE66_N_fastqc.html",
+        f"{FINAL}/snps.annotated.tsv",
+        f"{DB}/snps.sqlite",
+        f"{FIGURES}/fig1_impact_severity.svg",
+        f"{FIGURES}/fig2_gene_impacts.svg",
+        f"{LOGS}/upload_vcf_to_mango.done"
+
+rule download_fastq:
+    output:
+        f"{RAW}/TLE66_T.fastq",
+        f"{RAW}/TLE66_N.fastq"
+    log:
+        f"{LOGS}/download_fastq.log"
+    shell:
+        """
+        mkdir -p {RAW} {LOGS}
+        iron get {MANGO_FASTQ}/TLE66_T.fastq {RAW}/ >> {log} 2>&1
+        iron get {MANGO_FASTQ}/TLE66_N.fastq {RAW}/ >> {log} 2>&1
+        """
+
+# rule to generate fastqc html
+rule fastqc:
+    input:
+        f"{RAW}/{{sample}}.fastq"
+    output:
+        html = f"{FASTQC}/{{sample}}_fastqc.html",
+        zip  = f"{FASTQC}/{{sample}}_fastqc.zip"
+    log:
+        f"{LOGS}/{{sample}}_fastqc.log"
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p {FASTQC}
+        fastqc {input} -o {FASTQC} > {log} 2>&1
+        [ -s {output.html} ] || {{ echo "Error: fastqc html is empty!"; exit 1; }}
+        """
+
+rule bwa_map:
+    input:
+        fq  = f"{RAW}/{{sample}}.fastq",
+        ref = REF_GENOME
+    output:
+        sam = f"{BAM}/{{sample}}.sam"
+    log:
+        f"{LOGS}/{{sample}}_bwa.log"
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p {BAM}
+        bwa mem {input.ref} {input.fq} > {output.sam} 2> {log}
+        [ -s {output.sam} ] || {{ echo "Error: SAM output is empty!"; exit 1; }}
+        """
+
+rule sort_bam:
+    input:
+        sam = f"{BAM}/{{sample}}.sam"
+    output:
+        bam = f"{BAM}/{{sample}}.bam"
+    log:
+        f"{LOGS}/{{sample}}_sort.log"
+    shell:
+        """
+        set -euo pipefail
+        samtools sort -o {output.bam} {input.sam} > {log} 2>&1
+        [ -s {output.bam} ] || {{ echo "Error: BAM output is empty!"; exit 1; }}
+        """
+
+rule index_bam:
+    input:
+        f"{BAM}/{{sample}}.bam"
+    output:
+        f"{BAM}/{{sample}}.bam.bai"
+    log:
+        f"{LOGS}/{{sample}}_index.log"
+    shell:
+        """
+        set -euo pipefail
+        samtools index {input} {output} > {log} 2>&1
+        [ -s {output} ] || {{ echo "Error: BAM index is empty!"; exit 1; }}
+        """
+
+# variant calling
+rule variant_calling:
+    input:
+        bam_t = f"{BAM}/TLE66_T.bam",
+        bam_n = f"{BAM}/TLE66_N.bam",
+        bai_t = f"{BAM}/TLE66_T.bam.bai",
+        bai_n = f"{BAM}/TLE66_N.bam.bai",
+        ref   = REF_GENOME
+    output:
+        f"{VCF}/raw_snps.vcf"
+    log:
+        f"{LOGS}/variant_calling.log"
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p {VCF}
+        bcftools mpileup -f {input.ref} {input.bam_t} {input.bam_n} \
+            | bcftools call -mv -Ov -o {output} > {log} 2>&1
+        [ -s {output} ] || {{ echo "Error: raw_snps.vcf is empty!"; exit 1; }}
+        """
+
+rule clean_variants:
+    input:
+        raw = f"{VCF}/raw_snps.vcf",
+        ref = REF_GENOME
+    output:
+        f"{VCF}/clean_snps.vcf"
+    log:
+        f"{LOGS}/clean_variants.log"
+    shell:
+        """
+        set -euo pipefail
+        cat {input.raw} \
+            | vt decompose - \
+            | vt normalize -n -r {input.ref} - \
+            | vt uniq - \
+            | vt view -f "QUAL>20" -h - \
+            > {output} 2> {log}
+        [ -s {output} ] || {{ echo "Error: clean_snps.vcf is empty!"; exit 1; }}
+        """
+
+rule annotate_variants:
+    input:
+        f"{VCF}/clean_snps.vcf"
+    output:
+        vcf   = f"{VCF}/annotated_snps.vcf",
+        stats = f"{VCF}/snpEff_summary.html"
+    resources:
+        mem_mb = 2000
+    log:
+        f"{LOGS}/annotate_variants.log"
+    shell:
+        """
+        set -euo pipefail
+        java -Xmx3400m -jar {SNPEFF_JAR} eff hg38 \
+            -dataDir /staging/leuven/stg_00079/teaching/snpeff_db \
+            -stats {output.stats} \
+            {input} > {output.vcf} 2> {log}
+        [ -s {output.vcf} ] || {{ echo "Error: annotated_snps.vcf is empty!"; exit 1; }}
+        """
+# processing
+rule extract_tsv:
+    input:
+        f"{VCF}/annotated_snps.vcf"
+    output:
+        f"{FINAL}/snps.annotated.tsv"
+    log:
+        f"{LOGS}/extract_tsv.log"
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p {FINAL}
+        python extract_vcf.py {input} {output} > {log} 2>&1
+        [ -s {output} ] || {{ echo "Error: snps.annotated.tsv is empty!"; exit 1; }}
+        """
+
+rule load_vcf_to_sqlite:
+    input:
+        vcf    = f"{VCF}/annotated_snps.vcf",
+        script = "vcf_to_sqlite.py"
+    output:
+        db = f"{DB}/snps.sqlite"
+    log:
+        f"{LOGS}/load_vcf_to_sqlite.log"
+    shell:
+        """
+        set -euo pipefail
+        export PATH={CONDA_BIN}:$PATH
+        mkdir -p {DB}
+        python {input.script} --vcf {input.vcf} --db {output.db} > {log} 2>&1
+        """
+
+rule generate_figure:
+    input:
+        db     = f"{DB}/snps.sqlite",
+        script = "generate_plots.py"
+    output:
+        fig1 = f"{FIGURES}/fig1_impact_severity.svg",
+        fig2 = f"{FIGURES}/fig2_gene_impacts.svg"
+    log:
+        f"{LOGS}/generate_figure.log"
+    shell:
+        """
+        set -euo pipefail
+        export PATH={CONDA_BIN}:$PATH
+        mkdir -p {FIGURES}
+        python {input.script} --db {input.db} --outdir {FIGURES} > {log} 2>&1
+        [ -s {output.fig1} ] && [ -s {output.fig2} ] \
+            || {{ echo "Error: figure generation failed!"; exit 1; }}
+        """
+
+rule upload_vcf_to_mango:
+    input:
+        vcf = f"{VCF}/annotated_snps.vcf"
+    output:
+        touch(f"{LOGS}/upload_vcf_to_mango.done")
+    log:
+        f"{LOGS}/upload_vcf_to_mango.log"
+    shell:
+        """
+        set -euo pipefail
+        iron mkdir -p {MANGO_OUT}              >> {log} 2>&1
+        iron put {input.vcf} {MANGO_OUT}/      >> {log} 2>&1
+        """

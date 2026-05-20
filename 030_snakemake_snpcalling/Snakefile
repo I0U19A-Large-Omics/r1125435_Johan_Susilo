@@ -3,17 +3,22 @@
 REF_GENOME = "/staging/leuven/stg_00079/teaching/hg38_9/chr9.fa"
 SNPEFF_JAR = "/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/share/snpeff-5.4.0a-0/snpEff.jar"
 
+SCRATCH = config.get("scratch", ".")  
+
 # tell snakemake what is the ultimate goal
 rule all:
   input:
     "010.fastqc/TLE66_T_fastqc.html",
     "010.fastqc/TLE66_N_fastqc.html",
-    "100.final/snps.annotated.tsv"
+    "100.final/snps.annotated.tsv",
+    "150.db/snps.sqlite",
+    "160.figures/fig1_impact_severity.svg",
+    "160.figures/fig2_gene_impacts.svg"
 
 # rule to generate fastqc html
 rule fastqc:
   input:
-    "{sample}.fastq"
+    SCRATCH + "{sample}.fastq"
   output:
     html="010.fastqc/{sample}_fastqc.html", #define naming html for easier access
     zip="010.fastqc/{sample}_fastqc.zip" 
@@ -31,7 +36,7 @@ rule fastqc:
 
 rule bwa_map:
   input:
-    fq="{sample}.fastq", #define so later on we can define as input.fq
+    fq= SCRATCH + "{sample}.fastq", #define so later on we can define as input.fq
     ref=REF_GENOME
   output:
     sam="020.bam/{sample}.sam"
@@ -143,3 +148,39 @@ rule extract_tsv:
 
     [ -s {output} ] || {{ echo "Error: snps.annotated.tsv is empty!"; exit 1; }}
     """
+
+
+rule load_vcf_to_sqlite:
+  input: 
+    vcf="030.vcf/annotated_snps.vcf",
+    script="vcf_to_sqlite.py"
+  output:
+    db="150.db/snps.sqlite"
+  log:
+    "logs/load_vcf_to_sqlite.log"
+
+  shell:
+    """
+    
+    export PATH=/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/bin/:$PATH
+
+    python {input.script} --vcf {input.vcf} --db {output.db} > {log} 2>&1
+    
+
+    """
+
+rule generate_figure:
+  input:
+    db="150.db/snps.sqlite",
+    script="generate_plots.py"
+  output:
+    fig1="160.figures/fig1_impact_severity.svg",
+    fig2="160.figures/fig2_gene_impacts.svg"
+  shell:
+    """
+    export PATH=/lustre1/project/stg_00079/teaching/I0U19a_conda_2026/bin/:$PATH
+
+    python {input.script} --db {input.db} --outdir 160.figures
+
+    [ -s {output.fig1} ] && [ -s {output.fig2} ] || {{ echo "Error: Figure generation failed or files are empty!"; exit 1; }}  
+    """ 
